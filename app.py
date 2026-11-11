@@ -460,41 +460,44 @@ for moneda in monedas:
     )
 
     # Gráfico
-    fig = px.scatter(
-        evolucion,
-        x="FECHA OC",
-        y="PRECIO UNITARIO",
-        color="Descripción material",
-        hover_data={
-            "Material": True,
-            "FECHA OC": True,
-            "PRECIO UNITARIO": ":.4f"
-        },
-        title=f"Top 4 materias primas con mayores variaciones - {moneda}",
-        labels={
-            "FECHA OC": "Fecha de creación de OC",
-            "PRECIO UNITARIO": f"Precio unitario ({moneda})",
-            "Descripción material": "Materia prima"
-        }
-    )
 
-    fig.update_traces(
-        marker=dict(size=10)
-    )
+fig = px.line(
+    evolucion,
+    x="FECHA OC",
+    y="PRECIO UNITARIO",
+    color="Descripción material",
+    markers=True,
+    hover_data={
+        "Material": True,
+        "FECHA OC": True,
+        "PRECIO UNITARIO": ":.4f"
+    },
+    labels={
+        "FECHA OC": "Fecha de creación de OC",
+        "PRECIO UNITARIO": f"Precio unitario ({moneda_seleccionada})",
+        "Descripción material": "Materia prima"
+    }
+)
 
-    fig.update_layout(
-        template="plotly_white",
-        height=480,
-        hovermode="closest",
-        legend_title="Materia prima",
-        xaxis=dict(
-            tickformat="%b %Y",
-            title="Fecha de OC"
-        ),
-        yaxis=dict(
-            title=f"Precio unitario ({moneda})"
-        )
+fig.update_traces(
+    line=dict(width=2.5),
+    marker=dict(size=7)
+)
+
+fig.update_layout(
+    template="plotly_white",
+    height=480,
+    hovermode="x unified",
+    legend_title="Materia prima",
+    xaxis=dict(
+        tickformat="%b %Y",
+        title="Fecha de OC"
+    ),
+    yaxis=dict(
+        title=f"Precio unitario ({moneda_seleccionada})"
     )
+)
+
 
     st.plotly_chart(
         fig,
