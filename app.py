@@ -1,367 +1,223 @@
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 from pathlib import Path
 
-
-# ==========================================================
-# 1. CONFIGURACIÓN GENERAL
-# ==========================================================
+# =========================================================
+# CONFIGURACIÓN GENERAL
+# =========================================================
 
 st.set_page_config(
-    page_title="Evolución de Precios | Río Loa",
+    page_title="Evolución de precios - Río Loa",
     page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-AZUL = "#17365D"
-CELESTE = "#3B82A0"
+st.title("EVOLUCIÓN DE PRECIOS")
+st.subheader("Planta Río Loa")
+st.caption("Análisis de evolución de precios de materias primas según órdenes de compra.")
 
-# Buscar la copia actualizada.
-CARPETA = Path(__file__).parent
-
-NOMBRES_PREFERIDOS = [
-    "precios rio loa(3).xlsx",
-    "precios rio loa (3).xlsx",
-    "precios rio loa.xlsx"
-]
-
-ARCHIVO = next(
-    (
-        CARPETA / nombre
-        for nombre in NOMBRES_PREFERIDOS
-        if (CARPETA / nombre).exists()
-    ),
-    None
-)
-
-# Si tiene otro sufijo, aceptar una única coincidencia.
-if ARCHIVO is None:
-    candidatos = [
-        p for p in CARPETA.glob("*.xlsx")
-        if p.stem.casefold().startswith("precios rio loa")
-    ]
-
-    if len(candidatos) == 1:
-        ARCHIVO = candidatos[0]
-
-
-# ==========================================================
-# 2. DISEÑO VISUAL
-# ==========================================================
+# =========================================================
+# ESTILOS
+# =========================================================
 
 st.markdown("""
 <style>
+    .stApp {
+        background-color: #FFFFFF;
+    }
 
-.block-container {
-    padding-top: 1.5rem;
-    padding-bottom: 2rem;
-}
+    .main-title {
+        color: #183B56;
+        font-size: 32px;
+        font-weight: 800;
+    }
 
-h1, h2, h3 {
-    color: #17365D;
-}
+    div[data-testid="stMetric"] {
+        background-color: #F4F8FB;
+        border: 1px solid #E1EAF0;
+        padding: 15px;
+        border-radius: 10px;
+    }
 
-[data-testid="stMetric"] {
-    background-color: #F4F7FA;
-    border: 1px solid #E1E7ED;
-    padding: 15px;
-    border-radius: 10px;
-}
+    .analysis-box {
+        background-color: #F1F8FC;
+        padding: 18px;
+        border-radius: 12px;
+        border: 1px solid #DCEBF4;
+    }
 
-div[data-testid="stMetricValue"] {
-    color: #17365D;
-}
-
-/* Fondo celeste para análisis individual */
-
-.st-key-analisis_material {
-    background-color: #F0F8FC;
-    border: 1px solid #D8EAF3;
-    border-radius: 14px;
-    padding: 24px;
-    margin-top: 20px;
-    margin-bottom: 20px;
-}
-
-.st-key-analisis_material h2,
-.st-key-analisis_material h3 {
-    color: #17365D;
-}
-
+    h1, h2, h3 {
+        color: #183B56;
+    }
 </style>
 """, unsafe_allow_html=True)
 
+# =========================================================
+# ARCHIVO EXCEL
+# =========================================================
 
-# ==========================================================
-# 3. FUNCIONES DE LIMPIEZA
-# ==========================================================
+BASE_DIR = Path(__file__).parent
 
-def convertir_numero(columna):
+archivos_excel = list(BASE_DIR.glob("*.xlsx")) + list(BASE_DIR.glob("*.xls"))
 
-    if pd.api.types.is_numeric_dtype(columna):
-        return pd.to_numeric(columna, errors="coerce")
+archivo = None
 
-    def limpiar_valor(valor):
+for candidato in archivos_excel:
+    if "precios rio loa" in candidato.name.lower():
+        archivo = candidato
+        break
 
-        if pd.isna(valor):
-            return np.nan
-
-        valor = str(valor).strip()
-        valor = valor.replace("$", "").replace(" ", "")
-
-        if not valor or valor.lower() in ("nan", "none"):
-            return np.nan
-
-        if "." in valor and "," in valor:
-
-            if valor.rfind(",") > valor.rfind("."):
-                valor = valor.replace(".", "").replace(",", ".")
-            else:
-                valor = valor.replace(",", "")
-
-        elif "," in valor:
-            valor = valor.replace(".", "").replace(",", ".")
-
-        return pd.to_numeric(valor, errors="coerce")
-
-    return columna.apply(limpiar_valor)
-
-
-def convertir_fecha(columna):
-
-    return pd.to_datetime(
-        columna,
-        errors="coerce",
-        dayfirst=True
+if archivo is None:
+    st.error(
+        "No se encontró el archivo Excel de Río Loa. "
+        "Verifica que esté en la misma carpeta que app.py "
+        "y que su nombre comience con 'PRECIOS RIO LOA'."
     )
+    st.stop()
 
 
-# ==========================================================
-# 4. CARGA Y PREPARACIÓN DE DATOS
-# ==========================================================
+# =========================================================
+# CARGA Y LIMPIEZA DE DATOS
+# =========================================================
 
 @st.cache_data
 def cargar_datos(ruta_archivo, fecha_modificacion):
 
-    df = pd.read_excel(
-        ruta_archivo,
-        sheet_name="Data"
-    )
+    df = pd.read_excel(ruta_archivo, sheet_name="Data")
 
     # Normalizar nombres de columnas
-
-    df.columns = (
-        df.columns.astype(str)
-        .str.strip()
-    )
+    df.columns = df.columns.astype(str).str.strip()
 
     equivalencias = {
-
         "POSICION": "POSICIÓN",
-
         "Fecha OC": "FECHA OC",
-
         "Fecha contabiliz.": "FECHA CONTABILIZACIÓN",
-
         "Un.medida de entrada": "UNIDAD",
-
         "UNIDAD DE MEDIDA": "UNIDAD"
-
     }
 
     df = df.rename(columns=equivalencias)
 
-    # Verificar columnas obligatorias
+    # Normalizar nombres de columnas en mayúsculas
+    df.columns = [
+        col.upper().strip() for col in df.columns
+    ]
 
-    columnas_obligatorias = [
-        "Material",
-        "Descripción material",
-        "Pedido",
-        "FECHA OC",
-        "PRECIO",
+    # Identificar columnas
+    columnas_necesarias = [
+        "PEDIDO",
+        "MATERIAL",
+        "DESCRIPCIÓN MATERIAL",
         "CANTIDAD",
-        "MONEDA"
-    ]
-
-    faltantes = [
-        c for c in columnas_obligatorias
-        if c not in df.columns
-    ]
-
-    if faltantes:
-
-        raise ValueError(
-            "Faltan columnas en el Excel: "
-            + ", ".join(faltantes)
-        )
-
-    # Asegurar columnas opcionales
-
-    if "UNIDAD" not in df.columns:
-        df["UNIDAD"] = "Sin unidad"
-
-    if "POSICIÓN" not in df.columns:
-        df["POSICIÓN"] = "Sin posición"
-
-    if "FECHA CONTABILIZACIÓN" not in df.columns:
-        df["FECHA CONTABILIZACIÓN"] = pd.NaT
-
-    # ------------------------------------------------------
-    # LIMPIEZA DE DATOS
-    # ------------------------------------------------------
-
-    df["FECHA OC"] = convertir_fecha(
-        df["FECHA OC"]
-    )
-
-    df["FECHA CONTABILIZACIÓN"] = convertir_fecha(
-        df["FECHA CONTABILIZACIÓN"]
-    )
-
-    df["PRECIO"] = convertir_numero(
-        df["PRECIO"]
-    )
-
-    df["CANTIDAD"] = convertir_numero(
-        df["CANTIDAD"]
-    )
-
-    df["MONEDA"] = (
-        df["MONEDA"]
-        .astype("string")
-        .str.strip()
-        .str.upper()
-    )
-
-    df["Material"] = (
-        df["Material"]
-        .astype("string")
-        .str.strip()
-    )
-
-    df["Pedido"] = (
-        df["Pedido"]
-        .astype("string")
-        .str.strip()
-    )
-
-    df["Descripción material"] = (
-        df["Descripción material"]
-        .fillna("Sin descripción")
-        .astype(str)
-        .str.strip()
-    )
-
-    df["UNIDAD"] = (
-        df["UNIDAD"]
-        .fillna("Sin unidad")
-        .astype(str)
-        .str.strip()
-    )
-
-    df["POSICIÓN"] = (
-        df["POSICIÓN"]
-        .fillna("Sin posición")
-        .astype(str)
-        .str.strip()
-    )
-
-    # Evitar identificadores incorrectos por valores nulos
-
-    df.loc[
-        df["Pedido"].isin(["<NA>", "nan", "None"]),
-        "Pedido"
-    ] = pd.NA
-
-    df.loc[
-        df["Material"].isin(["<NA>", "nan", "None"]),
-        "Material"
-    ] = pd.NA
-
-    # ======================================================
-    # 5. RECUPERACIÓN DE ÓRDENES DE COMPRA REPETIDAS
-    # ======================================================
-
-    # Recuperar precio, moneda y fecha OC dentro de la
-    # misma combinación Pedido + Material.
-    #
-    # Se utiliza ffill + bfill para recuperar información
-    # aunque la primera fila del grupo tenga campos vacíos.
-    #
-    # NO se copian cantidades entre posiciones.
-    # NO se mezclan órdenes de compra diferentes.
-    # NO se sobrescriben precios que ya tienen valores.
-
-    columnas_recuperar = [
         "PRECIO",
         "MONEDA",
         "FECHA OC"
     ]
 
-    for columna in columnas_recuperar:
+    faltantes = [
+        col for col in columnas_necesarias
+        if col not in df.columns
+    ]
 
-        df[columna] = (
-            df.groupby(
-                ["Pedido", "Material"],
-                sort=False,
-                dropna=False
-            )[columna]
-            .transform(
-                lambda serie: serie.ffill().bfill()
-            )
+    if faltantes:
+        raise ValueError(
+            "Faltan columnas necesarias en el Excel: "
+            + ", ".join(faltantes)
         )
 
-    # ======================================================
-    # 6. CÁLCULO DEL PRECIO UNITARIO
-    # ======================================================
-
-    df["PRECIO UNITARIO"] = np.where(
-
-        df["CANTIDAD"] > 0,
-
-        df["PRECIO"] / df["CANTIDAD"],
-
-        np.nan
-
+    # Normalizar códigos y descripciones
+    df["MATERIAL"] = (
+        df["MATERIAL"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.strip()
     )
 
-    # ======================================================
-    # 7. CONSERVAR REGISTROS VÁLIDOS
-    # ======================================================
-
-    df = df.dropna(
-        subset=[
-            "FECHA OC",
-            "PRECIO",
-            "CANTIDAD",
-            "PRECIO UNITARIO",
-            "MONEDA",
-            "Material",
-            "Pedido"
-        ]
+    df["PEDIDO"] = (
+        df["PEDIDO"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.strip()
     )
 
+    df["DESCRIPCIÓN MATERIAL"] = (
+        df["DESCRIPCIÓN MATERIAL"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    # Convertir campos numéricos
+    for columna in ["CANTIDAD", "PRECIO"]:
+        df[columna] = pd.to_numeric(
+            df[columna],
+            errors="coerce"
+        )
+
+    # Convertir fechas
+    df["FECHA OC"] = pd.to_datetime(
+        df["FECHA OC"],
+        errors="coerce",
+        dayfirst=True
+    )
+
+    if "FECHA CONTABILIZACIÓN" in df.columns:
+        df["FECHA CONTABILIZACIÓN"] = pd.to_datetime(
+            df["FECHA CONTABILIZACIÓN"],
+            errors="coerce",
+            dayfirst=True
+        )
+
+    # Recuperar información de posiciones de una misma OC
+    # agrupando por pedido y material.
+    # No se rellenan cantidades.
+    columnas_rellenar = ["PRECIO", "MONEDA", "FECHA OC"]
+
+    if "FECHA CONTABILIZACIÓN" in df.columns:
+        columnas_rellenar.append("FECHA CONTABILIZACIÓN")
+
+    for columna in columnas_rellenar:
+
+        df[columna] = (
+            df.groupby(["PEDIDO", "MATERIAL"])[columna]
+            .transform(lambda x: x.ffill().bfill())
+        )
+
+    # Normalizar moneda
+    df["MONEDA"] = (
+        df["MONEDA"]
+        .astype(str)
+        .str.upper()
+        .str.strip()
+    )
+
+    # Filtrar registros válidos
     df = df[
-        (df["CANTIDAD"] > 0)
-        & (df["PRECIO UNITARIO"] > 0)
-        & (df["MONEDA"].isin(["CLP", "USD"]))
+        df["PEDIDO"].notna()
+        & df["MATERIAL"].notna()
+        & df["FECHA OC"].notna()
+        & df["CANTIDAD"].notna()
+        & df["PRECIO"].notna()
+        & (df["CANTIDAD"] > 0)
+        & (df["PRECIO"] > 0)
+        & df["MONEDA"].isin(["CLP", "USD"])
     ].copy()
 
-    # Orden cronológico
-
-    df = df.sort_values(
-        ["Material", "FECHA OC", "Pedido", "POSICIÓN"],
-        kind="stable"
+    # Precio unitario
+    df["PRECIO UNITARIO"] = (
+        df["PRECIO"] / df["CANTIDAD"]
     )
 
-    # ======================================================
-    # 8. MESES EN ESPAÑOL
-    # ======================================================
+    # Unidad de medida
+    if "UNIDAD" not in df.columns:
+        df["UNIDAD"] = ""
 
+    df["UNIDAD"] = df["UNIDAD"].fillna("").astype(str)
+
+    # Mes en español
     meses = {
         1: "Enero",
         2: "Febrero",
@@ -379,27 +235,32 @@ def cargar_datos(ruta_archivo, fecha_modificacion):
 
     df["MES"] = df["FECHA OC"].dt.month.map(meses)
 
-    df["MES AÑO"] = (
-        df["MES"] + " "
-        + df["FECHA OC"].dt.year.astype(str)
-    )
+    df["AÑO"] = df["FECHA OC"].dt.year
 
     return df
 
 
-# ==========================================================
-# 9. FUNCIONES AUXILIARES
-# ==========================================================
+try:
+    fecha_modificacion = archivo.stat().st_mtime
 
-def variacion_porcentual(inicial, final):
+    datos = cargar_datos(
+        str(archivo),
+        fecha_modificacion
+    )
 
-    if pd.isna(inicial) or inicial == 0:
-        return np.nan
+except Exception as e:
+    st.error(f"Error al cargar los datos: {e}")
+    st.stop()
 
-    return (
-        (final - inicial) / inicial
-    ) * 100
 
+if datos.empty:
+    st.warning("No existen registros válidos para analizar.")
+    st.stop()
+
+
+# =========================================================
+# FUNCIONES AUXILIARES
+# =========================================================
 
 def formato_precio(valor, moneda):
 
@@ -407,643 +268,556 @@ def formato_precio(valor, moneda):
         return "-"
 
     if moneda == "CLP":
+        return f"${valor:,.0f}".replace(",", ".")
 
-        return (
-            "$ "
-            + f"{valor:,.0f}".replace(",", ".")
-        )
-
-    return f"US$ {valor:,.4f}"
+    return f"US$ {valor:,.2f}"
 
 
-# ==========================================================
-# 10. CARGAR INFORMACIÓN
-# ==========================================================
+def preparar_datos_moneda(df, moneda):
 
-if ARCHIVO is None or not ARCHIVO.exists():
-
-    st.error(
-        "No se encontró el Excel de Río Loa. "
-        "Sube la copia actualizada con un nombre que comience por "
-        "'precios rio loa' y deja una sola copia del archivo "
-        "en el repositorio."
-    )
-
-    st.stop()
+    return df[df["MONEDA"] == moneda].copy()
 
 
-try:
+def obtener_nombre_material(df, material):
 
-    df = cargar_datos(
-        str(ARCHIVO),
-        ARCHIVO.stat().st_mtime
-    )
+    fila = df[df["MATERIAL"] == material]
 
-except Exception as error:
+    if fila.empty:
+        return material
 
-    st.error(
-        f"Error al cargar los datos: {error}"
-    )
-
-    st.stop()
+    return fila.iloc[0]["DESCRIPCIÓN MATERIAL"]
 
 
-if df.empty:
+def calcular_variacion(df):
 
-    st.error(
-        "No hay registros válidos para analizar. "
-        "Revisa las columnas de precio, cantidad, moneda y fecha OC."
-    )
+    df = df.sort_values("FECHA OC")
 
-    st.stop()
+    if len(df) < 2:
+        return None
 
+    primero = df.iloc[0]["PRECIO UNITARIO"]
+    ultimo = df.iloc[-1]["PRECIO UNITARIO"]
 
-# ==========================================================
-# 11. ENCABEZADO
-# ==========================================================
+    if primero == 0:
+        return None
 
-st.markdown(
-    "<h1>EVOLUCIÓN DE PRECIOS</h1>",
-    unsafe_allow_html=True
-)
-
-st.markdown("**RÍO LOA | CALAMA**")
-
-st.caption(
-    "Análisis de la evolución de precios de materias primas "
-    "según órdenes de compra."
-)
-
-st.divider()
+    return ((ultimo - primero) / primero) * 100
 
 
-# ==========================================================
-# 12. FILTROS DE ANÁLISIS
-# ==========================================================
+# =========================================================
+# SIDEBAR: FILTROS
+# =========================================================
 
-st.sidebar.title("Filtros de análisis")
+st.sidebar.header("Filtros")
 
-st.sidebar.markdown(
-    "### Período de análisis"
-)
+fecha_min = datos["FECHA OC"].min().date()
+fecha_max = datos["FECHA OC"].max().date()
 
-fecha_min = df["FECHA OC"].min().date()
-
-fecha_max = df["FECHA OC"].max().date()
-
-fechas = st.sidebar.date_input(
-    "Seleccionar fechas",
+rango_fechas = st.sidebar.date_input(
+    "Período de análisis",
     value=(fecha_min, fecha_max),
     min_value=fecha_min,
     max_value=fecha_max
 )
 
-if not isinstance(fechas, (tuple, list)) or len(fechas) != 2:
+if isinstance(rango_fechas, (tuple, list)) and len(rango_fechas) == 2:
 
-    st.info(
-        "Selecciona una fecha inicial y una fecha final."
+    fecha_inicio = pd.to_datetime(rango_fechas[0])
+    fecha_fin = (
+        pd.to_datetime(rango_fechas[1])
+        + pd.Timedelta(days=1)
+        - pd.Timedelta(seconds=1)
     )
 
+    datos_filtrados = datos[
+        (datos["FECHA OC"] >= fecha_inicio)
+        & (datos["FECHA OC"] <= fecha_fin)
+    ].copy()
+
+else:
+    datos_filtrados = datos.copy()
+
+
+# =========================================================
+# SELECTOR DE MONEDA
+# =========================================================
+
+st.markdown("### Moneda de análisis")
+
+monedas_disponibles = [
+    moneda
+    for moneda in ["CLP", "USD"]
+    if moneda in datos_filtrados["MONEDA"].unique()
+]
+
+if not monedas_disponibles:
+    st.warning("No existen datos para las monedas disponibles en el período.")
+    st.stop()
+
+if "moneda_seleccionada" not in st.session_state:
+    st.session_state["moneda_seleccionada"] = monedas_disponibles[0]
+
+if st.session_state["moneda_seleccionada"] not in monedas_disponibles:
+    st.session_state["moneda_seleccionada"] = monedas_disponibles[0]
+
+moneda = st.radio(
+    "Selecciona la moneda:",
+    monedas_disponibles,
+    horizontal=True,
+    key="moneda_seleccionada"
+)
+
+datos_moneda = preparar_datos_moneda(
+    datos_filtrados,
+    moneda
+)
+
+simbolo = "$" if moneda == "CLP" else "US$"
+
+
+# =========================================================
+# ANÁLISIS GENERAL
+# =========================================================
+
+st.divider()
+
+st.header("1. Análisis general")
+
+if datos_moneda.empty:
+
+    st.warning(f"No existen registros en {moneda} para el período seleccionado.")
     st.stop()
 
 
-fecha_inicio, fecha_fin = fechas
-
-
-if fecha_inicio > fecha_fin:
-
-    st.error(
-        "La fecha inicial no puede ser posterior a la final."
-    )
-
-    st.stop()
-
-
-# Selector de moneda
-
-st.markdown(
-    "### Seleccionar moneda"
-)
-
-monedas_disponibles = sorted(
-    df["MONEDA"].dropna().unique()
-)
-
-moneda_seleccionada = st.selectbox(
-    "Moneda de análisis",
-    options=monedas_disponibles,
-    index=0,
-    label_visibility="collapsed"
-)
-
-
-# Aplicar filtros
-
-filtrado = df[
-    (df["FECHA OC"].dt.date >= fecha_inicio)
-    & (df["FECHA OC"].dt.date <= fecha_fin)
-    & (df["MONEDA"] == moneda_seleccionada)
-].copy()
-
-
-if filtrado.empty:
-
-    st.warning(
-        "No existen registros para la moneda y período seleccionados."
-    )
-
-    st.stop()
-
-
-# ==========================================================
-# 13. RESUMEN GENERAL
-# ==========================================================
-
-st.markdown(
-    "### Resumen general"
-)
-
+# Indicadores generales
 col1, col2, col3, col4 = st.columns(4)
 
+total_ocs = datos_moneda["PEDIDO"].nunique()
+total_materiales = datos_moneda["MATERIAL"].nunique()
+
+precio_promedio = datos_moneda["PRECIO UNITARIO"].mean()
+precio_maximo = datos_moneda["PRECIO UNITARIO"].max()
+
 col1.metric(
-    "Registros de compra",
-    f"{len(filtrado):,}".replace(",", ".")
+    "Órdenes de compra",
+    f"{total_ocs:,}".replace(",", ".")
 )
 
 col2.metric(
     "Materias primas",
-    f"{filtrado['Material'].nunique():,}".replace(",", ".")
+    f"{total_materiales:,}".replace(",", ".")
 )
 
 col3.metric(
-    "Órdenes de compra",
-    f"{filtrado['Pedido'].nunique():,}".replace(",", ".")
+    "Precio unitario promedio",
+    formato_precio(precio_promedio, moneda)
 )
 
 col4.metric(
-    "Moneda seleccionada",
-    moneda_seleccionada
+    "Precio unitario máximo",
+    formato_precio(precio_maximo, moneda)
 )
 
-st.divider()
 
+# =========================================================
+# VARIACIÓN DE PRECIOS POR MATERIAL
+# =========================================================
 
-# ==========================================================
-# 14. TOP 4 MATERIAS PRIMAS CON MAYORES VARIACIONES
-# ==========================================================
-
-st.markdown(
-    "### Evolución de precios: Top 4 materias primas"
-)
-
-st.caption(
-    "Se muestran las cuatro materias primas con mayores variaciones "
-    "porcentuales absolutas, considerando aumentos y disminuciones."
-)
+st.subheader("Materias primas con mayores variaciones de precio")
 
 variaciones = []
 
-for material, grupo in filtrado.groupby("Material"):
+for material in datos_moneda["MATERIAL"].unique():
 
-    grupo = grupo.sort_values(
-        ["FECHA OC", "Pedido", "POSICIÓN"],
-        kind="stable"
+    df_material = datos_moneda[
+        datos_moneda["MATERIAL"] == material
+    ].copy()
+
+    variacion = calcular_variacion(df_material)
+
+    if variacion is not None:
+
+        variaciones.append({
+            "MATERIAL": material,
+            "DESCRIPCIÓN": obtener_nombre_material(
+                datos_moneda,
+                material
+            ),
+            "VARIACIÓN (%)": variacion
+        })
+
+
+if variaciones:
+
+    df_variaciones = pd.DataFrame(variaciones)
+
+    df_variaciones["VARIACIÓN ABSOLUTA"] = (
+        df_variaciones["VARIACIÓN (%)"].abs()
     )
 
-    if len(grupo) < 2:
-        continue
-
-    precio_inicial = grupo.iloc[0]["PRECIO UNITARIO"]
-
-    precio_final = grupo.iloc[-1]["PRECIO UNITARIO"]
-
-    variacion = variacion_porcentual(
-        precio_inicial,
-        precio_final
+    df_top = (
+        df_variaciones
+        .sort_values("VARIACIÓN ABSOLUTA", ascending=False)
+        .head(4)
+        .sort_values("VARIACIÓN (%)")
     )
 
-    if pd.isna(variacion):
-        continue
+    fig_variaciones = px.bar(
+        df_top,
+        x="VARIACIÓN (%)",
+        y="DESCRIPCIÓN",
+        orientation="h",
+        text=df_top["VARIACIÓN (%)"].map(
+            lambda x: f"{x:+.1f}%"
+        ),
+        title="Top 4 materias primas con mayor variación porcentual",
+        labels={
+            "VARIACIÓN (%)": "Variación porcentual",
+            "DESCRIPCIÓN": "Materia prima"
+        }
+    )
 
-    variaciones.append({
+    fig_variaciones.update_traces(
+        textposition="outside",
+        marker_color="#3987B8"
+    )
 
-        "Material": material,
+    fig_variaciones.update_layout(
+        height=380,
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        xaxis=dict(showgrid=True, gridcolor="#E9EFF3"),
+        yaxis=dict(showgrid=False)
+    )
 
-        "Descripción": grupo.iloc[0]["Descripción material"],
+    st.plotly_chart(
+        fig_variaciones,
+        use_container_width=True
+    )
 
-        "Precio inicial": precio_inicial,
+    st.caption(
+        "La variación porcentual se calcula comparando el primer "
+        "precio unitario registrado con el último precio unitario "
+        "del período seleccionado. Se consideran los registros "
+        "disponibles en la moneda elegida."
+    )
 
-        "Precio final": precio_final,
-
-        "Variación (%)": variacion,
-
-        "Variación absoluta": abs(variacion)
-
-    })
-
-
-ranking_grafico = pd.DataFrame(variaciones)
+else:
+    st.info("No hay suficientes registros para calcular variaciones.")
 
 
-if ranking_grafico.empty:
+# =========================================================
+# EVOLUCIÓN GENERAL DE PRECIOS
+# =========================================================
 
-    st.info(
-        "No existen suficientes registros para calcular variaciones."
+st.subheader("Evolución de precios de las principales materias primas")
+
+if variaciones:
+
+    materiales_top = df_top["MATERIAL"].tolist()
+
+    datos_top = datos_moneda[
+        datos_moneda["MATERIAL"].isin(materiales_top)
+    ].copy()
+
+    datos_top["MATERIA PRIMA"] = (
+        datos_top["DESCRIPCIÓN MATERIAL"]
+        + " ("
+        + datos_top["MATERIAL"]
+        + ")"
+    )
+
+    datos_top = datos_top.sort_values("FECHA OC")
+
+    fig_evolucion = px.line(
+        datos_top,
+        x="FECHA OC",
+        y="PRECIO UNITARIO",
+        color="MATERIA PRIMA",
+        markers=True,
+        title="Evolución del precio unitario",
+        labels={
+            "FECHA OC": "Fecha de creación de OC",
+            "PRECIO UNITARIO": f"Precio unitario ({moneda})",
+            "MATERIA PRIMA": "Materia prima"
+        }
+    )
+
+    fig_evolucion.update_layout(
+        height=480,
+        hovermode="x unified",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        xaxis=dict(showgrid=True, gridcolor="#E9EFF3"),
+        yaxis=dict(showgrid=True, gridcolor="#E9EFF3")
+    )
+
+    st.plotly_chart(
+        fig_evolucion,
+        use_container_width=True
+    )
+
+
+# =========================================================
+# ANÁLISIS INDIVIDUAL
+# =========================================================
+
+st.divider()
+
+st.header("2. Análisis individual de materias primas")
+
+st.markdown("""
+<div class="analysis-box">
+    Busca una materia prima utilizando su código SAP o parte de su
+    descripción. El buscador mostrará todas las coincidencias.
+</div>
+""", unsafe_allow_html=True)
+
+# Base de materiales disponibles
+materiales = (
+    datos_moneda[
+        ["MATERIAL", "DESCRIPCIÓN MATERIAL"]
+    ]
+    .drop_duplicates()
+    .sort_values(
+        ["DESCRIPCIÓN MATERIAL", "MATERIAL"]
+    )
+    .copy()
+)
+
+# Buscador
+busqueda = st.text_input(
+    "Buscar materia prima por código o descripción",
+    placeholder="Ejemplo: 40003395 o nitrato",
+    key="buscador_material_rio"
+).strip()
+
+# Filtrar coincidencias
+if busqueda:
+
+    coincidencias = materiales[
+        materiales["MATERIAL"].str.contains(
+            busqueda,
+            case=False,
+            na=False,
+            regex=False
+        )
+        |
+        materiales["DESCRIPCIÓN MATERIAL"].str.contains(
+            busqueda,
+            case=False,
+            na=False,
+            regex=False
+        )
+    ].copy()
+
+else:
+
+    coincidencias = materiales.copy()
+
+
+if coincidencias.empty:
+
+    st.warning(
+        "No se encontraron materias primas que coincidan con la búsqueda."
     )
 
 else:
 
-    top_4 = (
-        ranking_grafico
-        .sort_values(
-            "Variación absoluta",
-            ascending=False
-        )
-        .head(4)
-    )
-
-    materiales_top = top_4["Material"].tolist()
-
-    evolucion = filtrado[
-        filtrado["Material"].isin(materiales_top)
-    ].copy()
-
-    evolucion = evolucion.sort_values(
-        "FECHA OC",
-        kind="stable"
-    )
-
-    # Gráfico general de líneas
-
-    fig = px.line(
-        evolucion,
-        x="FECHA OC",
-        y="PRECIO UNITARIO",
-        color="Descripción material",
-        markers=True,
-        hover_data={
-            "Material": True,
-            "Pedido": True,
-            "POSICIÓN": True,
-            "FECHA OC": True,
-            "PRECIO UNITARIO": ":.4f"
-        },
-        labels={
-            "FECHA OC": "Fecha de creación de OC",
-            "PRECIO UNITARIO":
-                f"Precio unitario ({moneda_seleccionada})",
-            "Descripción material": "Materia prima"
-        }
-    )
-
-    fig.update_traces(
-        line=dict(width=2.5),
-        marker=dict(size=7)
-    )
-
-    fig.update_layout(
-        template="plotly_white",
-        height=500,
-        hovermode="x unified",
-        legend_title="Materia prima",
-        margin=dict(
-            l=20,
-            r=20,
-            t=40,
-            b=20
-        ),
-        xaxis=dict(
-            title="Fecha de creación de OC",
-            tickformat="%b %Y"
-        ),
-        yaxis=dict(
-            title=f"Precio unitario ({moneda_seleccionada})"
-        )
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-
-    with st.expander(
-        "Ver las 4 materias primas seleccionadas"
-    ):
-
-        tabla_top = top_4[
-            [
-                "Material",
-                "Descripción",
-                "Precio inicial",
-                "Precio final",
-                "Variación (%)"
-            ]
-        ].copy()
-
-        st.dataframe(
-            tabla_top,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Precio inicial":
-                    st.column_config.NumberColumn(
-                        format="%.4f"
-                    ),
-                "Precio final":
-                    st.column_config.NumberColumn(
-                        format="%.4f"
-                    ),
-                "Variación (%)":
-                    st.column_config.NumberColumn(
-                        format="%.2f%%"
-                    )
-            }
-        )
-
-
-# ==========================================================
-# 15. ANÁLISIS INDIVIDUAL
-# ==========================================================
-
-def mostrar_analisis_individual(datos, moneda):
-
-    st.markdown(
-        "## Análisis por materia prima"
-    )
-
-    st.caption(
-        "Selecciona una materia prima para consultar "
-        "su evolución individual."
-    )
-
-    materiales = (
-        datos[
-            [
-                "Material",
-                "Descripción material"
-            ]
-        ]
-        .drop_duplicates()
-        .sort_values(
-            ["Descripción material", "Material"],
-            kind="stable"
-        )
-    )
-
-    # Opciones de selección
-
+    # Crear opciones para el selector
     opciones = [
-        f"{fila['Descripción material']} ({fila['Material']})"
-        for _, fila in materiales.iterrows()
+        f"{fila['DESCRIPCIÓN MATERIAL']} ({fila['MATERIAL']})"
+        for _, fila in coincidencias.iterrows()
     ]
 
     mapa_opciones = {
-        f"{fila['Descripción material']} ({fila['Material']})":
-        fila["Material"]
-        for _, fila in materiales.iterrows()
+        f"{fila['DESCRIPCIÓN MATERIAL']} ({fila['MATERIAL']})":
+        fila["MATERIAL"]
+        for _, fila in coincidencias.iterrows()
     }
-
-    # Mantener selección actual y posición en la lista
 
     clave_selector = "selector_material"
 
-    if clave_selector not in st.session_state:
-
+    # Mantener una selección válida cuando cambie la búsqueda
+    if (
+        clave_selector not in st.session_state
+        or st.session_state[clave_selector] not in opciones
+    ):
         st.session_state[clave_selector] = opciones[0]
-
-    if st.session_state[clave_selector] not in opciones:
-
-        st.session_state[clave_selector] = opciones[0]
-
-    indice_actual = opciones.index(
-        st.session_state[clave_selector]
-    )
 
     seleccion = st.selectbox(
-        "Seleccionar materia prima",
+        "Selecciona una materia prima:",
         options=opciones,
-        index=indice_actual,
         key=clave_selector
     )
 
     material_seleccionado = mapa_opciones[seleccion]
 
-    detalle = datos[
-        datos["Material"] == material_seleccionado
+    # Datos del material
+    df_material = datos_moneda[
+        datos_moneda["MATERIAL"] == material_seleccionado
     ].copy()
 
-    detalle = detalle.sort_values(
-        ["FECHA OC", "Pedido", "POSICIÓN"],
-        kind="stable"
+    df_material = df_material.sort_values("FECHA OC")
+
+    nombre_material = obtener_nombre_material(
+        datos_moneda,
+        material_seleccionado
     )
 
-    st.markdown(
-        f"### {seleccion}"
+    st.markdown("---")
+
+    st.subheader(nombre_material)
+    st.caption(f"Código SAP: {material_seleccionado}")
+
+    # Indicadores del material
+    precio_inicial = df_material.iloc[0]["PRECIO UNITARIO"]
+    precio_actual = df_material.iloc[-1]["PRECIO UNITARIO"]
+
+    variacion_material = None
+
+    if precio_inicial != 0:
+        variacion_material = (
+            (precio_actual - precio_inicial)
+            / precio_inicial
+        ) * 100
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric(
+        "Precio inicial",
+        formato_precio(precio_inicial, moneda)
     )
 
-    # ------------------------------------------------------
-    # INDICADORES
-    # ------------------------------------------------------
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        "Registros de compra",
-        f"{len(detalle):,}".replace(",", ".")
+    c2.metric(
+        "Último precio",
+        formato_precio(precio_actual, moneda)
     )
 
-    col2.metric(
-        "Cantidad total",
-        f"{detalle['CANTIDAD'].sum():,.2f}"
-    )
+    if variacion_material is not None:
 
-    col3.metric(
-        "Órdenes de compra",
-        f"{detalle['Pedido'].nunique():,}".replace(",", ".")
-    )
-
-    # ------------------------------------------------------
-    # GRÁFICO INDIVIDUAL
-    # ------------------------------------------------------
-
-    st.markdown(
-        "### Evolución histórica del precio unitario"
-    )
-
-    fig_detalle = px.line(
-        detalle,
-        x="FECHA OC",
-        y="PRECIO UNITARIO",
-        markers=True,
-        hover_data={
-            "Pedido": True,
-            "POSICIÓN": True,
-            "CANTIDAD": True,
-            "UNIDAD": True,
-            "FECHA OC": True,
-            "PRECIO UNITARIO": ":.4f"
-        },
-        labels={
-            "FECHA OC": "Fecha de creación de OC",
-            "PRECIO UNITARIO":
-                f"Precio unitario ({moneda})"
-        }
-    )
-
-    fig_detalle.update_traces(
-        line=dict(
-            color=CELESTE,
-            width=2.5
-        ),
-        marker=dict(size=8)
-    )
-
-    fig_detalle.update_layout(
-        template="plotly_white",
-        height=430,
-        hovermode="x unified",
-        xaxis=dict(
-            title="Fecha de creación de OC",
-            tickformat="%b %Y"
-        ),
-        yaxis=dict(
-            title=f"Precio unitario ({moneda})"
+        c3.metric(
+            "Variación del período",
+            f"{variacion_material:+.2f}%"
         )
+
+    else:
+
+        c3.metric("Variación del período", "-")
+
+    c4.metric(
+        "Órdenes de compra",
+        f"{df_material['PEDIDO'].nunique():,}".replace(",", ".")
+    )
+
+    # Gráfico individual
+    st.markdown("### Evolución histórica del precio unitario")
+
+    fig_individual = go.Figure()
+
+    fig_individual.add_trace(
+        go.Scatter(
+            x=df_material["FECHA OC"],
+            y=df_material["PRECIO UNITARIO"],
+            mode="lines+markers",
+            name="Precio unitario",
+            line=dict(
+                width=3,
+                color="#2878A8"
+            ),
+            marker=dict(size=8),
+            customdata=df_material[
+                ["PEDIDO", "CANTIDAD", "UNIDAD"]
+            ].fillna("").values,
+            hovertemplate=(
+                "<b>Fecha:</b> %{x|%d-%m-%Y}<br>"
+                "<b>Precio unitario:</b> %{y:,.4f}<br>"
+                "<b>OC:</b> %{customdata[0]}<br>"
+                "<b>Cantidad:</b> %{customdata[1]} "
+                "%{customdata[2]}<extra></extra>"
+            )
+        )
+    )
+
+    fig_individual.update_layout(
+        height=450,
+        xaxis_title="Fecha de creación de OC",
+        yaxis_title=f"Precio unitario ({moneda})",
+        hovermode="closest",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        xaxis=dict(showgrid=True, gridcolor="#E9EFF3"),
+        yaxis=dict(showgrid=True, gridcolor="#E9EFF3")
     )
 
     st.plotly_chart(
-        fig_detalle,
+        fig_individual,
         use_container_width=True
     )
 
-    # ------------------------------------------------------
-    # VARIACIÓN ACUMULADA
-    # ------------------------------------------------------
-
-    if len(detalle) >= 2:
-
-        inicial = detalle.iloc[0]["PRECIO UNITARIO"]
-
-        final = detalle.iloc[-1]["PRECIO UNITARIO"]
-
-        variacion = variacion_porcentual(
-            inicial,
-            final
-        )
-
-        st.markdown(
-            "### Variación acumulada del precio"
-        )
-
-        a, b, c = st.columns(3)
-
-        a.metric(
-            "Primer precio registrado",
-            formato_precio(inicial, moneda)
-        )
-
-        b.metric(
-            "Último precio registrado",
-            formato_precio(final, moneda)
-        )
-
-        c.metric(
-            "Variación acumulada",
-            f"{variacion:+.2f}%"
-        )
-
-    # ------------------------------------------------------
+    # =====================================================
     # HISTORIAL DE ÓRDENES DE COMPRA
-    # ------------------------------------------------------
+    # =====================================================
 
-    st.markdown(
-        "### Historial de órdenes de compra"
-    )
+    st.markdown("### Historial de órdenes de compra")
 
-    columnas_mostrar = [
-        "FECHA OC",
-        "Pedido",
-        "POSICIÓN",
-        "Material",
-        "Descripción material",
+    columnas_historial = [
+        "PEDIDO",
+        "MATERIAL",
+        "DESCRIPCIÓN MATERIAL",
         "CANTIDAD",
+        "UNIDAD",
         "PRECIO",
+        "MONEDA",
         "PRECIO UNITARIO",
-        "MONEDA"
+        "FECHA OC"
     ]
 
-    if "UNIDAD" in detalle.columns:
-        columnas_mostrar.insert(6, "UNIDAD")
+    if "FECHA CONTABILIZACIÓN" in df_material.columns:
+        columnas_historial.append("FECHA CONTABILIZACIÓN")
 
-    if "FECHA CONTABILIZACIÓN" in detalle.columns:
-        columnas_mostrar.append(
-            "FECHA CONTABILIZACIÓN"
-        )
+    columnas_historial = [
+        col for col in columnas_historial
+        if col in df_material.columns
+    ]
 
-    tabla = detalle[
-        columnas_mostrar
-    ].copy()
+    historial = df_material[columnas_historial].copy()
 
-    tabla = tabla.sort_values(
-        ["FECHA OC", "Pedido", "POSICIÓN"],
-        ascending=[False, False, True],
-        kind="stable"
+    historial = historial.sort_values(
+        "FECHA OC",
+        ascending=False
     )
 
     st.dataframe(
-        tabla,
+        historial,
         use_container_width=True,
         hide_index=True
     )
 
-    # ------------------------------------------------------
-    # DESCARGA CSV
-    # ------------------------------------------------------
-
-    st.markdown(
-        "### Exportar información"
-    )
-
-    csv = tabla.to_csv(
+    # Descargar historial
+    csv = historial.to_csv(
         index=False,
         sep=";",
-        decimal=",",
         encoding="utf-8-sig"
     )
 
     st.download_button(
-        label="Descargar historial en CSV",
+        label="Descargar historial de órdenes de compra",
         data=csv,
-        file_name="evolucion_precios_rio_loa.csv",
+        file_name=f"historial_{material_seleccionado}.csv",
         mime="text/csv"
     )
 
 
-# ==========================================================
-# 16. SECCIÓN CON FONDO CELESTE
-# ==========================================================
-
-with st.container(key="analisis_material"):
-
-    mostrar_analisis_individual(
-        filtrado,
-        moneda_seleccionada
-    )
-
-
-# ==========================================================
-# 17. PIE DE PÁGINA
-# ==========================================================
+# =========================================================
+# INFORMACIÓN FINAL
+# =========================================================
 
 st.divider()
 
 st.caption(
-    "Dashboard de análisis de precios | Río Loa | "
-    "Fuente: registros de órdenes de compra."
-)
-
-st.caption(
-    "Precio unitario = PRECIO / CANTIDAD. "
-    "La variación porcentual compara el primer y último precio unitario "
-    "registrado dentro del período seleccionado."
+    "Fuente: registros de órdenes de compra SAP de la planta Río Loa. "
+    "El precio unitario se calcula como PRECIO dividido por CANTIDAD. "
+    "Los resultados dependen de los registros disponibles y de los "
+    "filtros seleccionados."
 )
