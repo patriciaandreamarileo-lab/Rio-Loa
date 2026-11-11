@@ -373,11 +373,18 @@ st.divider()
 # 8. EVOLUCIÓN GENERAL POR MONEDA
 # =====================================================
 
-st.markdown("### Evolución general de precios")
+
+# =====================================================
+# 8. EVOLUCIÓN GENERAL DE LAS 4 MATERIAS PRIMAS
+# CON MAYORES VARIACIONES
+# =====================================================
+
+st.markdown("### Evolución de precios: materias primas con mayores variaciones")
 
 st.caption(
-    "Los precios unitarios se presentan separados por moneda. "
-    "No se realiza conversión entre CLP y USD."
+    "Se muestran las cuatro materias primas con mayores "
+    "variaciones porcentuales entre su primer y último "
+    "precio registrado en el período seleccionado."
 )
 
 for moneda in monedas:
@@ -389,11 +396,60 @@ for moneda in monedas:
     if datos_moneda.empty:
         continue
 
-    st.markdown(f"#### Precios expresados en {moneda}")
+    # Calcular variación de cada materia prima
+    variaciones = []
 
+    for material, grupo in datos_moneda.groupby("Material"):
+
+        grupo = grupo.sort_values("FECHA OC")
+
+        if len(grupo) < 2:
+            continue
+
+        precio_inicial = grupo.iloc[0]["PRECIO UNITARIO"]
+        precio_final = grupo.iloc[-1]["PRECIO UNITARIO"]
+
+        if precio_inicial <= 0:
+            continue
+
+        variacion = (
+            (precio_final - precio_inicial)
+            / precio_inicial
+        ) * 100
+
+        variaciones.append({
+            "Material": material,
+            "Descripción": grupo.iloc[0]["Descripción material"],
+            "Variación (%)": variacion,
+            "Variación absoluta": abs(variacion)
+        })
+
+    ranking_grafico = pd.DataFrame(variaciones)
+
+    if ranking_grafico.empty:
+        st.info(
+            f"No hay suficientes registros para calcular "
+            f"variaciones en {moneda}."
+        )
+        continue
+
+    # Seleccionar las 4 mayores variaciones absolutas
+    top_4 = (
+        ranking_grafico
+        .sort_values("Variación absoluta", ascending=False)
+        .head(4)
+    )
+
+    materiales_top = top_4["Material"].tolist()
+
+    # Filtrar solamente los cuatro materiales seleccionados
+    evolucion = datos_moneda[
+        datos_moneda["Material"].isin(materiales_top)
+    ].copy()
+
+    # Agrupar registros por fecha y material
     evolucion = (
-        datos_moneda
-        .sort_values("FECHA OC")
+        evolucion
         .groupby(
             ["FECHA OC", "Material", "Descripción material"],
             as_index=False
@@ -403,32 +459,34 @@ for moneda in monedas:
         })
     )
 
+    # Gráfico
     fig = px.scatter(
         evolucion,
         x="FECHA OC",
         y="PRECIO UNITARIO",
-        color="Material",
-        hover_data=[
-            "Descripción material",
-            "Material"
-        ],
-        title=f"Evolución de precios unitarios - {moneda}",
+        color="Descripción material",
+        hover_data={
+            "Material": True,
+            "FECHA OC": True,
+            "PRECIO UNITARIO": ":.4f"
+        },
+        title=f"Top 4 materias primas con mayores variaciones - {moneda}",
         labels={
             "FECHA OC": "Fecha de creación de OC",
             "PRECIO UNITARIO": f"Precio unitario ({moneda})",
-            "Material": "Código de material"
+            "Descripción material": "Materia prima"
         }
     )
 
     fig.update_traces(
-        marker=dict(size=8)
+        marker=dict(size=10)
     )
 
     fig.update_layout(
         template="plotly_white",
         height=480,
         hovermode="closest",
-        legend_title="Material",
+        legend_title="Materia prima",
         xaxis=dict(
             tickformat="%b %Y",
             title="Fecha de OC"
@@ -443,88 +501,37 @@ for moneda in monedas:
         use_container_width=True
     )
 
-st.divider()
+    # Mostrar las cuatro materias primas seleccionadas
+    with st.expander("Ver las 4 materias primas seleccionadas"):
 
+        tabla_top = top_4[
+            ["Material", "Descripción", "Variación (%)"]
+        ].copy()
+
+        st.dataframe(
+            tabla_top,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Variación (%)": st.column_config.NumberColumn(
+                    format="%.2f%%"
+                )
+            }
+        )
 
 # =====================================================
 # 9. RANKING DE MATERIAS PRIMAS
 # =====================================================
 
-st.markdown("### Materias primas con mayores variaciones")
+monedas_disponibles = sorted(df["MONEDA"].unique())
 
-st.caption(
-    "Ranking calculado comparando el primer y último precio "
-    "unitario registrado de cada material dentro del período, "
-    "por moneda."
+moneda_seleccionada = st.sidebar.selectbox(
+    "Seleccionar moneda",
+    options=monedas_disponibles,
+    index=0
 )
 
-ranking_resultados = []
-
-for moneda in monedas:
-
-    datos = filtrado[
-        filtrado["MONEDA"] == moneda
-    ]
-
-    for material, grupo in datos.groupby("Material"):
-
-        grupo = grupo.sort_values("FECHA OC")
-
-        if len(grupo) < 2:
-            continue
-
-        primero = grupo.iloc[0]
-        ultimo = grupo.iloc[-1]
-
-        variacion = variacion_porcentual(
-            primero["PRECIO UNITARIO"],
-            ultimo["PRECIO UNITARIO"]
-        )
-
-        ranking_resultados.append({
-            "Material": material,
-            "Descripción": primero["Descripción material"],
-            "Moneda": moneda,
-            "Precio inicial": primero["PRECIO UNITARIO"],
-            "Precio final": ultimo["PRECIO UNITARIO"],
-            "Variación (%)": variacion,
-            "Cambios registrados": len(grupo) - 1
-        })
-
-ranking = pd.DataFrame(ranking_resultados)
-
-if not ranking.empty:
-
-    ranking = ranking.sort_values(
-        "Variación (%)",
-        key=lambda x: x.abs(),
-        ascending=False
-    )
-
-    st.dataframe(
-        ranking,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Precio inicial": st.column_config.NumberColumn(
-                format="%.4f"
-            ),
-            "Precio final": st.column_config.NumberColumn(
-                format="%.4f"
-            ),
-            "Variación (%)": st.column_config.NumberColumn(
-                format="%.2f%%"
-            )
-        }
-    )
-
-else:
-    st.info(
-        "No existen suficientes registros para calcular variaciones."
-    )
-
-st.divider()
-
+monedas = [moneda_seleccionada]
 
 # =====================================================
 # 10. CATÁLOGO Y DETALLE DE MATERIAS PRIMAS
